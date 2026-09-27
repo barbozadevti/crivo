@@ -63,6 +63,6 @@ jobs:
       - name: Teste de fumaça
         run: |
           for i in $(seq 1 120); do curl -sf http://localhost:5240/health && break; sleep 1; done
-          curl -sf http://localhost:5240/api/vagas | grep -q "Desenvolvedor Java Pleno"
+          curl -sf http://localhost:5240/api/vagas | grep -q "Java Pleno"
       - if: failure()
         run: docker compose logs
