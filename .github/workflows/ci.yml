@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  testes-h2:
+    name: Testes (H2) e teste de fumaça
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Testes e empacotamento
+        run: mvn -B verify
+      - name: Teste de fumaça do jar
+        run: |
+          java -jar target/crivo.jar --spring.datasource.url=jdbc:h2:mem:fumaca &
+          for i in $(seq 1 60); do curl -sf http://localhost:5240/health && break; sleep 1; done
+          curl -sf http://localhost:5240/ | grep -q "<title>Crivo</title>"
+          curl -sf http://localhost:5240/api/vagas | grep -q "Assistente Administrativo"
+          ID=$(curl -sf http://localhost:5240/api/vagas | python3 -c "import sys,json; print([v['id'] for v in json.load(sys.stdin) if v['titulo']=='Assistente Administrativo'][0])")
+          curl -sf -X POST "http://localhost:5240/api/vagas/$ID/simulacao?semente=42" | grep -q "Resultado"
+
+  testes-postgres:
+    name: Testes (PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: crivo
+          POSTGRES_USER: crivo
+          POSTGRES_PASSWORD: crivo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U crivo -d crivo" --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/crivo
+      SPRING_DATASOURCE_USERNAME: crivo
+      SPRING_DATASOURCE_PASSWORD: crivo
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Mesma bateria de testes, com migrações Flyway no PostgreSQL
+        run: mvn -B test
+
+  docker:
+    name: Docker Compose (Crivo + PostgreSQL)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker compose up -d --build
+      - name: Teste de fumaça
+        run: |
+          for i in $(seq 1 120); do curl -sf http://localhost:5240/health && break; sleep 1; done
+          curl -sf http://localhost:5240/api/vagas | grep -q "Desenvolvedor Java Pleno"
+      - if: failure()
+        run: docker compose logs
