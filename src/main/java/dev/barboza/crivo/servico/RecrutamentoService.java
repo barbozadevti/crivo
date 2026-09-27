@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import dev.barboza.crivo.dominio.Candidato;
 import dev.barboza.crivo.dominio.CandidatoRepository;
+import dev.barboza.crivo.dominio.Dinheiro;
 import dev.barboza.crivo.dominio.Etapa;
 import dev.barboza.crivo.dominio.Evento;
 import dev.barboza.crivo.dominio.EventoRepository;
@@ -24,7 +25,10 @@ import dev.barboza.crivo.dominio.ResultadoDoContato;
 import dev.barboza.crivo.dominio.Vaga;
 import dev.barboza.crivo.dominio.VagaRepository;
 
-/** Regras do processo seletivo: triagem, seleção, contato, suplentes e encerramento da vaga. */
+/**
+ * Regras do processo seletivo: triagem, seleção, contato, suplentes, avaliação, proposta e
+ * encerramento da vaga. Os métodos terminados em {@code Em} recebem a data (dados de demonstração).
+ */
 @Service
 public class RecrutamentoService {
 
@@ -40,10 +44,20 @@ public class RecrutamentoService {
         this.relogio = relogio;
     }
 
-    public record NovaVaga(String titulo, String area, String descricao, BigDecimal salarioBase, Integer quantidade) {
+    public record NovaVaga(String titulo, String area, String descricao, BigDecimal salarioBase, Integer quantidade,
+            String requisitos, Vaga.Modelo modelo, String local) {
+
+        public NovaVaga(String titulo, String area, String descricao, BigDecimal salarioBase, Integer quantidade) {
+            this(titulo, area, descricao, salarioBase, quantidade, null, null, null);
+        }
     }
 
-    public record NovoCandidato(String nome, String email, String telefone, BigDecimal salarioPretendido) {
+    public record NovoCandidato(String nome, String email, String telefone, BigDecimal salarioPretendido,
+            String habilidades, String linkedin, Candidato.Origem origem) {
+
+        public NovoCandidato(String nome, String email, String telefone, BigDecimal salarioPretendido) {
+            this(nome, email, telefone, salarioPretendido, null, null, Candidato.Origem.MANUAL);
+        }
     }
 
     /** Números da vaga: quantos em cada etapa, vagas ocupadas e quantos pediram acima do orçamento. */
@@ -65,13 +79,23 @@ public class RecrutamentoService {
 
     @Transactional
     public Vaga criarVaga(NovaVaga dados) {
+        return criarVagaEm(dados, relogio.instant());
+    }
+
+    @Transactional
+    public Vaga criarVagaEm(NovaVaga dados, Instant quando) {
         return vagas.save(new Vaga(dados.titulo(), dados.area(), dados.descricao(), dados.salarioBase(),
-                dados.quantidade() == null ? 0 : dados.quantidade(), relogio.instant()));
+                dados.quantidade() == null ? 0 : dados.quantidade(), dados.requisitos(), dados.modelo(), dados.local(), quando));
     }
 
     @Transactional(readOnly = true)
     public List<Funil> vagas() {
         return vagas.findAllByOrderByStatusAscCriadaEmDesc().stream().map(v -> funil(v, candidatosDa(v.getId()))).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<Vaga> vagasAbertas() {
+        return vagas.findAllByOrderByStatusAscCriadaEmDesc().stream().filter(Vaga::aberta).toList();
     }
 
     @Transactional(readOnly = true)
@@ -111,10 +135,10 @@ public class RecrutamentoService {
         return inscreverEm(vaga(vagaId), dados, relogio.instant());
     }
 
-    /** Inscrição com data informada (dados de demonstração). */
     @Transactional
     public Candidato inscreverEm(Vaga vaga, NovoCandidato dados, Instant quando) {
-        Candidato candidato = new Candidato(vaga, dados.nome(), dados.email(), dados.telefone(), dados.salarioPretendido(), quando);
+        Candidato candidato = new Candidato(vaga, dados.nome(), dados.email(), dados.telefone(), dados.salarioPretendido(),
+                dados.habilidades(), dados.linkedin(), dados.origem(), quando);
         if (candidatos.existsByVagaIdAndEmail(vaga.getId(), candidato.getEmail())) {
             throw new RegraVioladaException(candidato.getEmail() + " já está inscrito nesta vaga.");
         }
@@ -124,9 +148,8 @@ public class RecrutamentoService {
     }
 
     /**
-     * Importa candidatos colados de uma planilha: uma linha por candidato, com
-     * {@code nome;e-mail;telefone;salário} (vírgula como separador também vale). Linhas com erro
-     * não impedem as demais: voltam na lista de erros.
+     * Importa candidatos colados de uma planilha: {@code nome;e-mail;telefone;salário} e, opcionalmente,
+     * uma quinta coluna com habilidades separadas por "|". Linhas com erro voltam na lista de erros.
      */
     @Transactional
     public Importacao importar(Long vagaId, String texto) {
@@ -142,11 +165,12 @@ public class RecrutamentoService {
             }
             String[] partes = linha.split(linha.contains(";") ? ";" : ",", -1);
             try {
-                if (partes.length != 4) {
+                if (partes.length != 4 && partes.length != 5) {
                     throw new RegraVioladaException("use nome;e-mail;telefone;salário");
                 }
-                BigDecimal salario = lerValor(partes[3]);
-                inscreverEm(vaga, new NovoCandidato(partes[0], partes[1], partes[2], salario), relogio.instant());
+                String habilidades = partes.length == 5 ? partes[4].replace('|', ',') : null;
+                inscreverEm(vaga, new NovoCandidato(partes[0], partes[1], partes[2], lerValor(partes[3]), habilidades, null,
+                        Candidato.Origem.IMPORTACAO), relogio.instant());
                 importados++;
             } catch (RegraVioladaException e) {
                 erros.add("Linha " + (i + 1) + ": " + e.getMessage());
@@ -160,15 +184,12 @@ public class RecrutamentoService {
 
     // ---------- Seleção ----------
 
-    /**
-     * Percorre a fila em ordem de inscrição e seleciona quem cabe no orçamento, até completar
-     * as vagas (o {@code while} do processo seletivo das aulas).
-     */
+    /** Seleciona, em ordem de inscrição, quem cabe no orçamento até completar as vagas. */
     @Transactional
     public List<Candidato> selecionar(Long vagaId) {
         Vaga vaga = vaga(vagaId);
         vaga.exigirAberta();
-        List<Candidato> selecionados = selecionarSemFalhar(vagaId);
+        List<Candidato> selecionados = selecionarEm(vagaId, relogio.instant());
         if (selecionados.isEmpty()) {
             throw new RegraVioladaException(livres(vaga) <= 0
                     ? "Todas as vagas já estão ocupadas por candidatos em andamento."
@@ -177,9 +198,9 @@ public class RecrutamentoService {
         return selecionados;
     }
 
-    /** Como {@link #selecionar}, mas devolve lista vazia em vez de erro (usado na simulação). */
+    /** Como {@link #selecionar}, mas devolve lista vazia em vez de erro (simulação e demonstração). */
     @Transactional
-    public List<Candidato> selecionarSemFalhar(Long vagaId) {
+    public List<Candidato> selecionarEm(Long vagaId, Instant quando) {
         Vaga vaga = vaga(vagaId);
         if (!vaga.aberta()) {
             return List.of();
@@ -191,7 +212,7 @@ public class RecrutamentoService {
         while (livres > 0 && posicao < fila.size()) {
             Candidato candidato = fila.get(posicao);
             if (candidato.getEtapa() == Etapa.INSCRITO && candidato.recomendacao().cabeNoOrcamento()) {
-                registrar(candidato.mover(Etapa.SELECIONADO, "seleção automática (cabe no orçamento)", relogio.instant()));
+                registrar(candidato.mover(Etapa.SELECIONADO, "seleção automática (cabe no orçamento)", quando));
                 selecionados.add(candidato);
                 livres--;
             }
@@ -204,6 +225,11 @@ public class RecrutamentoService {
 
     @Transactional
     public Candidato mover(Long candidatoId, Etapa destino, String motivo) {
+        return moverEm(candidatoId, destino, motivo, relogio.instant());
+    }
+
+    @Transactional
+    public Candidato moverEm(Long candidatoId, Etapa destino, String motivo, Instant quando) {
         Candidato candidato = candidato(candidatoId);
         Vaga vaga = candidato.getVaga();
         vaga.exigirAberta();
@@ -216,60 +242,104 @@ public class RecrutamentoService {
                     + " vagas já estão ocupadas por candidatos em andamento.");
         }
         boolean ocupava = candidato.getEtapa().ocupaVaga();
-        registrar(candidato.mover(destino, motivo, relogio.instant()));
-        depoisDeMover(vaga, ocupava, candidato);
+        registrar(candidato.mover(destino, motivo, quando));
+        depoisDeMover(vaga, ocupava, candidato, quando);
         return candidato;
     }
 
     /** Registra uma ligação. Na terceira sem sucesso, o candidato sai e o suplente é chamado. */
     @Transactional
     public ResultadoDoContato registrarContato(Long candidatoId, boolean atendeu) {
+        return registrarContatoEm(candidatoId, atendeu, relogio.instant());
+    }
+
+    @Transactional
+    public ResultadoDoContato registrarContatoEm(Long candidatoId, boolean atendeu, Instant quando) {
         Candidato candidato = candidato(candidatoId);
         Vaga vaga = candidato.getVaga();
         vaga.exigirAberta();
         candidato.exigirSelecionado();
-        Instant agora = relogio.instant();
         int tentativa = candidato.tentativaAtual();
         if (atendeu) {
-            registrar(Evento.contato(candidato, "Atendeu na " + tentativa + "ª tentativa.", agora));
-            registrar(candidato.mover(Etapa.ENTREVISTA, "contato feito", agora));
+            registrar(Evento.contato(candidato, "Atendeu na " + tentativa + "ª tentativa.", quando));
+            registrar(candidato.mover(Etapa.ENTREVISTA, "contato feito", quando));
             return new ResultadoDoContato.Atendeu(candidato, tentativa);
         }
-        int feitas = candidato.registrarTentativaSemSucesso(agora);
-        registrar(Evento.contato(candidato, "Não atendeu (" + feitas + "ª tentativa).", agora));
+        int feitas = candidato.registrarTentativaSemSucesso(quando);
+        registrar(Evento.contato(candidato, "Não atendeu (" + feitas + "ª tentativa).", quando));
         if (feitas < Candidato.MAXIMO_DE_TENTATIVAS) {
             return new ResultadoDoContato.NaoAtendeu(candidato, feitas, Candidato.MAXIMO_DE_TENTATIVAS - feitas);
         }
-        registrar(candidato.mover(Etapa.SEM_CONTATO, Candidato.MAXIMO_DE_TENTATIVAS + " tentativas sem resposta", agora));
-        return new ResultadoDoContato.SemContato(candidato, chamarSuplente(vaga).orElse(null));
+        registrar(candidato.mover(Etapa.SEM_CONTATO, Candidato.MAXIMO_DE_TENTATIVAS + " tentativas sem resposta", quando));
+        return new ResultadoDoContato.SemContato(candidato, chamarSuplente(vaga, quando).orElse(null));
     }
 
+    // ---------- Avaliação, proposta e notas ----------
+
+    @Transactional
+    public Candidato avaliar(Long candidatoId, int nota, String parecer) {
+        return avaliarEm(candidatoId, nota, parecer, relogio.instant());
+    }
+
+    @Transactional
+    public Candidato avaliarEm(Long candidatoId, int nota, String parecer, Instant quando) {
+        Candidato candidato = candidato(candidatoId);
+        candidato.getVaga().exigirAberta();
+        registrar(candidato.avaliar(nota, parecer, quando));
+        return candidato;
+    }
+
+    @Transactional
+    public Candidato enviarProposta(Long candidatoId, BigDecimal valor) {
+        return enviarPropostaEm(candidatoId, valor, relogio.instant());
+    }
+
+    @Transactional
+    public Candidato enviarPropostaEm(Long candidatoId, BigDecimal valor, Instant quando) {
+        Candidato candidato = candidato(candidatoId);
+        candidato.getVaga().exigirAberta();
+        registrar(candidato.enviarProposta(valor, quando));
+        return candidato;
+    }
+
+    @Transactional
+    public Evento anotar(Long candidatoId, String texto) {
+        return anotarEm(candidatoId, texto, relogio.instant());
+    }
+
+    @Transactional
+    public Evento anotarEm(Long candidatoId, String texto, Instant quando) {
+        Evento nota = Evento.nota(candidato(candidatoId), texto, quando);
+        registrar(nota);
+        return nota;
+    }
+
+    // ---------- Apoio ----------
+
     /** Depois de uma mudança: libera vaga (chama suplente) ou encerra a vaga quando todas foram preenchidas. */
-    private void depoisDeMover(Vaga vaga, boolean ocupava, Candidato candidato) {
+    private void depoisDeMover(Vaga vaga, boolean ocupava, Candidato candidato, Instant quando) {
         if (candidato.getEtapa() == Etapa.CONTRATADO) {
             long contratados = candidatos.findByVagaIdOrderByInscritoEmAscIdAsc(vaga.getId()).stream()
                     .filter(c -> c.getEtapa() == Etapa.CONTRATADO).count();
             if (contratados >= vaga.getQuantidade()) {
-                vaga.encerrar(relogio.instant());
+                vaga.encerrar(quando);
             }
         } else if (ocupava && !candidato.getEtapa().ocupaVaga()) {
-            chamarSuplente(vaga);
+            chamarSuplente(vaga, quando);
         }
     }
 
     /** O próximo inscrito que cabe no orçamento ocupa a vaga liberada. */
-    private Optional<Candidato> chamarSuplente(Vaga vaga) {
+    private Optional<Candidato> chamarSuplente(Vaga vaga, Instant quando) {
         if (!vaga.aberta() || livres(vaga) <= 0) {
             return Optional.empty();
         }
         Optional<Candidato> suplente = candidatos.findByVagaIdOrderByInscritoEmAscIdAsc(vaga.getId()).stream()
                 .filter(c -> c.getEtapa() == Etapa.INSCRITO && c.recomendacao().cabeNoOrcamento())
                 .findFirst();
-        suplente.ifPresent(c -> registrar(c.mover(Etapa.SELECIONADO, "suplente chamado para a vaga liberada", relogio.instant())));
+        suplente.ifPresent(c -> registrar(c.mover(Etapa.SELECIONADO, "suplente chamado para a vaga liberada", quando)));
         return suplente;
     }
-
-    // ---------- Apoio ----------
 
     private Vaga vaga(Long id) {
         return vagas.findById(id).orElseThrow(() -> new NaoEncontradoException("Vaga não encontrada."));

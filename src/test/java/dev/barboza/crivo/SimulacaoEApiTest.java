@@ -184,6 +184,48 @@ class SimulacaoEApiTest {
     }
 
     @Test
+    void carreirasMostraSoVagasAbertasEInscreveComOrigem() throws Exception {
+        Vaga vaga = recrutamento.criarVaga(new NovaVaga("Dev", "TI", null, new BigDecimal("3000"), 1, "Java, SQL", null, "Vitória, ES"));
+        Vaga fechada = recrutamento.criarVaga(new NovaVaga("Antiga", "TI", null, new BigDecimal("3000"), 1));
+        recrutamento.encerrarVaga(fechada.getId());
+
+        mvc.perform(get("/api/carreiras"))
+                .andExpect(jsonPath("$[?(@.titulo == 'Dev')].requisitos[0]").value("Java"))
+                .andExpect(jsonPath("$[?(@.titulo == 'Antiga')]").isEmpty())
+                .andExpect(jsonPath("$[0].salarioBase").doesNotExist());
+        postar("/api/carreiras/" + vaga.getId() + "/candidaturas", """
+                {"nome":"Ana Souza","email":"ana@x.com","salarioPretendido":2800,"habilidades":"Java, Git"}""")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.mensagem", containsString("Recebemos sua candidatura para Dev, Ana.")));
+        mvc.perform(get("/api/vagas/" + vaga.getId() + "/candidatos"))
+                .andExpect(jsonPath("$[0].origem").value("CARREIRAS"))
+                .andExpect(jsonPath("$[0].compatibilidade.pontuacao").value(60))
+                .andExpect(jsonPath("$[0].compatibilidade.faltam[0]").value("SQL"));
+    }
+
+    @Test
+    void avaliacaoEPropostaPelaApi() throws Exception {
+        Vaga vaga = recrutamento.criarVaga(new NovaVaga("Dev", "TI", null, new BigDecimal("3000"), 1));
+        Candidato ana = recrutamento.inscrever(vaga.getId(), new NovoCandidato("Ana Souza", "ana@x.com", null, new BigDecimal("2900")));
+        recrutamento.selecionar(vaga.getId());
+        recrutamento.registrarContato(ana.getId(), true);
+
+        postar("/api/candidatos/" + ana.getId() + "/proposta", "{\"valor\":2900}")
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.detail").value("Registre a avaliação da entrevista antes de enviar a proposta."));
+        postar("/api/candidatos/" + ana.getId() + "/avaliacao", "{\"nota\":4,\"parecer\":\"Boa entrevista técnica.\"}")
+                .andExpect(jsonPath("$.notaEntrevista").value(4));
+        postar("/api/candidatos/" + ana.getId() + "/proposta", "{\"valor\":2700}")
+                .andExpect(jsonPath("$.etapa").value("PROPOSTA"))
+                .andExpect(jsonPath("$.salarioOfertado").value(2700));
+        postar("/api/candidatos/" + ana.getId() + "/notas", "{\"texto\":\"Responde até sexta.\"}").andExpect(status().isCreated());
+        mvc.perform(get("/api/painel"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.funil.PROPOSTA").value(1))
+                .andExpect(jsonPath("$.atividade[0].descricao").value("Responde até sexta."));
+    }
+
+    @Test
     void siteESwaggerRespondem() throws Exception {
         mvc.perform(get("/")).andExpect(status().isOk());
         mvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andExpect(jsonPath("$.info.title", containsString("Crivo")));

@@ -3,23 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#312e81">
   <title>Crivo</title>
-  <meta name="description" content="Crivo: recrutamento com triagem automática, seleção até completar as vagas, tentativas de contato e funil em Kanban.">
+  <meta name="description" content="Crivo: recrutamento com triagem automática, compatibilidade, contato com suplente, avaliação, proposta e funil em Kanban.">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/app.css">
   <script type="module" src="js/app.js"></script>
 </head>
 <body>
-  <header class="barra">
-    <a class="marca" href="#/"><img src="favicon.svg" alt="" width="30" height="30"><span><strong>Crivo</strong><small>recrutamento</small></span></a>
-    <nav class="barra-acoes">
-      <a class="botao fantasma" href="#/">Vagas</a>
-      <a class="botao fantasma" href="/swagger-ui.html" target="_blank" rel="noopener">API</a>
-      <button class="botao fantasma" type="button" id="reiniciar" title="Apaga tudo e recarrega as vagas de exemplo">Reiniciar<span class="so-largo"> demonstração</span></button>
-    </nav>
-  </header>
-  <main class="principal" id="principal" tabindex="-1"></main>
+  <div id="app"><p class="carregando">Carregando…</p></div>
   <dialog id="modal" aria-labelledby="modal-titulo"></dialog>
+  <dialog id="gaveta" class="gaveta" aria-labelledby="gaveta-titulo"></dialog>
   <div class="avisos" id="avisos" aria-live="polite"></div>
 </body>
 </html>

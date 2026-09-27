@@ -10,4 +10,6 @@ public interface CandidatoRepository extends JpaRepository<Candidato, Long> {
     List<Candidato> findByVagaIdOrderByInscritoEmAscIdAsc(Long vagaId);
 
     boolean existsByVagaIdAndEmail(Long vagaId, String email);
+
+    List<Candidato> findAllByOrderByAtualizadoEmAsc();
 }

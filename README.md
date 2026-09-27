@@ -6,33 +6,19 @@
 
 <p align="center">
   <b>Recrutamento sem candidato esquecido.</b><br>
-  Triagem automática pelo orçamento da vaga, seleção até completar as vagas, até 3 tentativas de contato<br>
-  com chamada do suplente e um quadro Kanban validado por uma máquina de estados.
+  Um ATS (sistema de recrutamento) completo: triagem pelo orçamento, compatibilidade com a vaga, fila de suplentes,<br>
+  avaliação da entrevista, proposta com contraproposta, página pública de carreiras e um Kanban validado por máquina de estados.
 </p>
 
 <p align="center">
   <a href="https://github.com/barbozadevti/crivo/actions/workflows/ci.yml"><img src="https://github.com/barbozadevti/crivo/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Java-21-4f46e5" alt="Java 21">
   <img src="https://img.shields.io/badge/Spring_Boot-4.1-4f46e5" alt="Spring Boot 4.1">
-  <img src="https://img.shields.io/badge/testes-94-4f46e5" alt="94 testes">
+  <img src="https://img.shields.io/badge/testes-110-4f46e5" alt="110 testes">
   <img src="https://img.shields.io/badge/PostgreSQL%20%7C%20H2-Flyway-4f46e5" alt="PostgreSQL e H2 com Flyway">
 </p>
 
-![Quadro de uma vaga](docs/telas/02-quadro.png)
-
-## De onde veio
-
-O Crivo nasceu do desafio de **controle de fluxo** da DIO ([entrega original](https://github.com/barbozadevti/java-processo-seletivo)): um processo seletivo em que o `if` decide se o candidato cabe no salário, o `while` seleciona até 5, o `for` lista os selecionados e o `do/while` tenta a ligação até 3 vezes.
-
-Aqui essas mesmas regras viraram um produto: um pequeno ATS (sistema de recrutamento) que um recrutador usaria de verdade, e que mostra os recursos modernos do Java para **controle de fluxo**:
-
-| No desafio | No Crivo |
-|---|---|
-| `if / else if / else` pelo salário pretendido | `enum Recomendacao` (ligar, contraproposta, aguardar), calculada na inscrição |
-| `while` até 5 selecionados | Seleção automática em ordem de inscrição, respeitando o orçamento e o número de vagas da vaga |
-| `do / while` até 3 tentativas | Registro de cada ligação; na 3ª sem resposta o candidato sai e o **suplente é chamado** |
-| Mensagens soltas no console | **Máquina de estados** (`switch` exaustivo sobre as etapas) e resultados com `sealed interface` + `record` + *pattern matching* |
-| `ParametrosInvalidosException` | Exceções de negócio que viram `409` (transição proibida) e `422` (regra violada) em `problem+json` |
+![Visão geral do recrutador](docs/telas/01-visao-geral.png)
 
 ## Experimente
 
@@ -40,49 +26,68 @@ Aqui essas mesmas regras viraram um produto: um pequeno ATS (sistema de recrutam
 docker compose up --build
 ```
 
-Abra **http://localhost:5240**. Sem Docker: `mvn spring-boot:run` (JDK 21 + Maven; o banco H2 fica em `~/.crivo`). No Windows, o atalho `Abrir Crivo.cmd` compila na primeira vez e abre o navegador.
+Abra **http://localhost:5240**. Sem Docker: `mvn spring-boot:run` (JDK 21 + Maven). No Windows, o atalho `Abrir Crivo.cmd` compila na primeira vez e abre o navegador.
 
-Já vêm 4 vagas de exemplo, cada uma num momento diferente do processo:
+O Crivo já abre com o **Grupo Horizonte** (empresa fictícia) e 6 vagas em momentos diferentes do processo. Para ver tudo em 2 minutos:
 
-| Vaga | O que ver |
-|---|---|
-| Analista de Suporte Júnior | Uma contratada, um em entrevista, uma "sem contato" depois de 3 ligações (e o suplente chamado) |
-| Desenvolvedor Java Pleno | Dois selecionados esperando ligação: use **✓ Atendeu / ✕ Não atendeu** no cartão |
-| Assistente Administrativo | O caso das aulas (salário base de R$ 2.000,00, 5 vagas): clique em **▶ Simular processo** |
-| Estágio em Recursos Humanos | Vaga que fechou sozinha ao completar a contratação |
+1. **Visão geral:** a lista *Precisa de atenção hoje* leva direto a cada pendência (ligar, avaliar, enviar proposta, cobrar resposta).
+2. **Vaga Desenvolvedor(a) Java Pleno:** abra o Júlio (entrevista avaliada) e envie a proposta; arraste cartões para ver as colunas permitidas.
+3. **Vaga Assistente Administrativo:** o caso das aulas (salário base de R$ 2.000,00, 5 vagas). Clique em **▶ Simular processo**.
+4. **Página de carreiras** (menu lateral): candidate-se a uma vaga e veja o candidato chegar ao quadro com a compatibilidade calculada.
 
-O botão **Reiniciar demonstração** recarrega tudo.
+**Reiniciar demonstração** (no rodapé do menu) recarrega tudo.
 
 ## Funcionalidades
 
-- **Vagas** com orçamento (salário base) e quantidade de vagas.
-- **Triagem na inscrição**: pretende menos que o orçamento, ligar; igual, ligar com contraproposta; mais, aguardar os demais.
-- **Seleção automática**: percorre a fila em ordem de inscrição e seleciona quem cabe no orçamento, até completar as vagas.
-- **Contato**: até 3 tentativas por candidato. Na terceira sem resposta, o candidato vai para "sem contato" e o próximo da fila que cabe no orçamento é chamado.
-- **Kanban**: arrastar e soltar entre etapas. Ao começar a arrastar, o quadro destaca só as colunas permitidas; o servidor valida de novo.
-- **Suplente automático**: quem ocupava uma vaga e sai (reprovado, desistência, sem contato) libera o lugar para o próximo.
-- **Encerramento automático**: ao completar as contratações, a vaga fecha sozinha.
-- **Histórico** de cada candidato (inscrição, cada ligação, cada mudança de etapa, com o motivo).
-- **Funil** por vaga e quantos candidatos pedem acima do orçamento (sinal para rever a faixa salarial).
-- **Importação por CSV** colado de uma planilha. Linhas com erro não impedem as demais e voltam explicadas.
-- **Simulação** do processo inteiro com sorteio repetível (mesma semente, mesmo resultado): 1 chance em 3 de atender o telefone, como nas aulas.
+### Para o recrutador
+- **Visão geral**: vagas abertas, candidatos em andamento, contratações nos últimos 30 dias, **tempo médio até contratar**, taxa de conversão, funil de todas as vagas, origem dos candidatos e atividade recente.
+- **Precisa de atenção hoje**: selecionados sem ligação, novas tentativas, entrevistas sem avaliação, propostas prontas para envio, propostas sem resposta há dias e vagas com lugar livre.
+- **Triagem pelo orçamento** na inscrição: pretende menos, ligar; igual, contraproposta; mais, aguardar (a regra das aulas).
+- **Compatibilidade de 0 a 100**: 80 pontos pelos requisitos da vaga que o candidato tem (sem diferença de acento ou maiúscula) e 20 pelo encaixe no orçamento. O cartão mostra um anel colorido; a ficha mostra o que atende e o que falta.
+- **Seleção automática** em ordem de inscrição, respeitando o orçamento e o número de vagas.
+- **Contato**: até 3 ligações; na terceira sem resposta, o candidato sai e o **suplente** que cabe no orçamento é chamado.
+- **Avaliação da entrevista** (nota de 1 a 5 e parecer) e **proposta com valor**: exige nota mínima 3, não passa do orçamento e, abaixo da pretensão, fica registrada como **contraproposta**.
+- **Kanban** com arrastar e soltar: ao arrastar, só as colunas permitidas se destacam; soltar em *Proposta* abre a ficha no formulário da proposta.
+- **Tempo na etapa** em cada cartão (fica vermelho a partir de 5 dias), estrelas da avaliação e valor ofertado.
+- **Ficha do candidato** em gaveta lateral: contatos, LinkedIn, compatibilidade, dados, ações da etapa, **notas** e histórico completo.
+- **Importação por CSV** colado de planilha (com habilidades) e **simulação** do processo com sorteio repetível.
+- **Encerramento automático** da vaga ao completar as contratações.
+
+### Para o candidato
+- **Página "Trabalhe conosco"** com as vagas abertas, benefícios e formulário de candidatura. O candidato nunca vê a triagem nem o orçamento exato; recebe só a confirmação.
 
 <table>
   <tr>
-    <td><img src="docs/telas/01-vagas.png" alt="Lista de vagas"></td>
-    <td><img src="docs/telas/05-arrastar.png" alt="Arrastar e soltar: só as colunas permitidas ficam destacadas"></td>
+    <td><img src="docs/telas/02-vagas.png" alt="Vagas coloridas por área"></td>
+    <td><img src="docs/telas/03-quadro.png" alt="Quadro da vaga"></td>
   </tr>
   <tr>
-    <td><img src="docs/telas/04-ficha.png" alt="Ficha e histórico do candidato"></td>
-    <td><img src="docs/telas/06-simulacao.png" alt="Simulação do processo"></td>
+    <td><img src="docs/telas/04-avaliacao-e-proposta.png" alt="Avaliação da entrevista e proposta"></td>
+    <td><img src="docs/telas/05-historico.png" alt="Histórico do candidato"></td>
   </tr>
   <tr>
-    <td><img src="docs/telas/03-selecionados.png" alt="Selecionados com tentativas de contato"></td>
-    <td><img src="docs/telas/07-depois-da-simulacao.png" alt="Quadro depois da simulação"></td>
+    <td><img src="docs/telas/06-arrastar.png" alt="Arrastar: só as colunas permitidas ficam destacadas"></td>
+    <td><img src="docs/telas/07-simulacao.png" alt="Simulação do processo"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/telas/08-carreiras.png" alt="Página de carreiras"></td>
+    <td><img src="docs/telas/09-candidatura.png" alt="Candidatura"></td>
   </tr>
 </table>
 
-<p align="center"><img src="docs/telas/08-celular.png" alt="Celular" width="280"></p>
+<p align="center"><img src="docs/telas/10-celular.png" alt="Celular" width="280"></p>
+
+## De onde veio
+
+O Crivo nasceu do desafio de **controle de fluxo** da DIO ([entrega original](https://github.com/barbozadevti/java-processo-seletivo)): um processo seletivo em que o `if` decide se o candidato cabe no salário, o `while` seleciona até 5, o `for` lista os selecionados e o `do/while` tenta a ligação até 3 vezes. Aqui essas regras viraram produto, com os recursos modernos do Java:
+
+| No desafio | No Crivo |
+|---|---|
+| `if / else if / else` pelo salário pretendido | `enum Recomendacao`, calculada na inscrição e reaproveitada na compatibilidade e na contraproposta |
+| `while` até 5 selecionados | Seleção em ordem de inscrição, respeitando orçamento e número de vagas |
+| `do / while` até 3 tentativas | Cada ligação registrada; na 3ª sem resposta, suplente automático |
+| Mensagens soltas no console | **Máquina de estados** com `switch` exaustivo e resultados com `sealed interface` + `record` + *pattern matching* |
+| `ParametrosInvalidosException` | Exceções de negócio que viram `409` (transição proibida) e `422` (regra violada) em `problem+json` |
 
 ## A máquina de estados
 
@@ -90,17 +95,17 @@ O botão **Reiniciar demonstração** recarrega tudo.
 stateDiagram-v2
   [*] --> Inscrito
   Inscrito --> Selecionado: cabe no orçamento e há vaga
-  Inscrito --> Reprovado
-  Inscrito --> Desistiu
   Selecionado --> Entrevista: atendeu a ligação
   Selecionado --> SemContato: 3 tentativas sem resposta
-  Selecionado --> Reprovado
-  Selecionado --> Desistiu
-  Entrevista --> Proposta
-  Entrevista --> Reprovado
-  Entrevista --> Desistiu
+  Entrevista --> Proposta: avaliação >= 3 e valor <= orçamento
   Proposta --> Contratado
+  Inscrito --> Reprovado
+  Selecionado --> Reprovado
+  Entrevista --> Reprovado
   Proposta --> Reprovado
+  Inscrito --> Desistiu
+  Selecionado --> Desistiu
+  Entrevista --> Desistiu
   Proposta --> Desistiu
   Contratado --> [*]
   SemContato --> [*]
@@ -120,7 +125,19 @@ public Set<Etapa> proximas() {
 }
 ```
 
-O `switch` é exaustivo: uma etapa nova sem regra de transição nem compila. "Sem contato" só pode ser definido pelo próprio Crivo, depois de 3 ligações registradas, e nunca pelo arrastar e soltar.
+O `switch` é exaustivo: uma etapa nova sem regra de transição nem compila. "Sem contato" só é definido pelo Crivo, depois de 3 ligações; "Proposta" só com avaliação e valor.
+
+## Decisões de engenharia
+
+| Tema | Decisão |
+|---|---|
+| Regras no domínio | `Candidato` só muda de etapa pela máquina de estados e devolve o `Evento` do histórico; o serviço não "força" etapas. |
+| Histórico realista | Todo caso de uso tem uma versão que recebe a data (`moverEm`, `avaliarEm`...), usada pelos dados de demonstração para espalhar o histórico nas últimas semanas. |
+| Evolução do banco | Duas migrações Flyway: `V1` (estrutura) e `V2` (requisitos, habilidades, origem, avaliação, proposta), como numa base em produção. SQL portável entre H2 e PostgreSQL. |
+| Transações | Operações que podem falhar por regra não são chamadas dentro de outra transação que precise continuar (a simulação usa uma seleção "sem falhar"), evitando o *rollback-only* do Spring. |
+| Privacidade | A API pública de carreiras não expõe orçamento, triagem nem outros candidatos. |
+| Cache do site | Os arquivos estáticos pedem revalidação (`Cache-Control: no-cache`), para ninguém ver uma tela antiga depois de uma atualização. |
+| Frontend | Módulos JavaScript sem framework; cores de avatar e larguras de barras aplicadas via CSSOM (nada de estilo inline no HTML). Tema claro e escuro. |
 
 ## Testes
 
@@ -128,33 +145,33 @@ O `switch` é exaustivo: uma etapa nova sem regra de transição nem compila. "S
 mvn verify
 ```
 
-**94 testes**, rodando também contra o **PostgreSQL** no CI:
+**110 testes**, rodando também contra o **PostgreSQL** no CI (e um job sobe o **Docker Compose**):
 
 | Área | O que é verificado |
 |---|---|
 | Máquina de estados | As **64 combinações** de etapa de origem e destino, contra uma tabela escrita à parte |
-| Triagem | A regra das aulas, incluindo os limites (R$ 1.999,99, R$ 2.000,00, R$ 2.000,01) |
-| Seleção | Ordem de inscrição, quem pede acima do orçamento é pulado, limite de vagas |
-| Contato | 3 tentativas, suplente que cabe no orçamento, "sem contato" nunca manual |
-| Vaga | Encerramento automático ao completar as contratações; nada muda depois disso |
-| Simulação | Mesma semente, mesmo resultado; e, em 25 sementes diferentes, nenhuma regra é quebrada |
-| API | Status HTTP (`404`, `409`, `422`, `400`) em `problem+json`, importação CSV e contato com suplente |
+| Triagem e compatibilidade | Limites da regra das aulas (R$ 1.999,99 / 2.000,00 / 2.000,01) e 5 cenários de pontuação calculados à mão |
+| Seleção e contato | Ordem de inscrição, quem pede acima é pulado, 3 tentativas, suplente que cabe no orçamento |
+| Avaliação e proposta | Sem avaliação não há proposta; nota mínima; teto do orçamento; contraproposta no histórico |
+| Visão geral | Cada tipo de pendência aparece quando deve (e some quando resolvida) |
+| Simulação | Mesma semente, mesmo resultado; em 25 sementes, nenhuma regra é quebrada |
+| API | `404`, `409`, `422`, `400` em `problem+json`, página de carreiras sem dados internos, importação CSV |
 
 ## Arquitetura
 
 ```
 src/main/java/dev/barboza/crivo/
-├── dominio/   Vaga, Candidato, Evento, Etapa (máquina de estados), Recomendacao, ResultadoDoContato (sealed)
-├── servico/   RecrutamentoService (seleção, contato, suplente, encerramento) e SimulacaoService
-├── api/       RecrutamentoController e erros em problem+json
-└── config/    Demonstração, relógio, OpenAPI e abertura do navegador
+├── dominio/   Vaga, Candidato, Evento, Etapa (máquina de estados), Recomendacao, Compatibilidade, ResultadoDoContato (sealed)
+├── servico/   RecrutamentoService, PainelService (visão geral), SimulacaoService
+├── api/       RecrutamentoController (recrutador), CarreirasController (público), erros em problem+json
+└── config/    Demonstração (Grupo Horizonte), relógio, OpenAPI e abertura do navegador
 src/main/resources/
-├── db/migration/   Migrações Flyway (H2 e PostgreSQL)
-└── static/         Site em HTML, CSS e JavaScript, sem framework (tema claro e escuro)
+├── db/migration/   V1 e V2 (Flyway)
+└── static/js/      app, painel, vagas, quadro, candidato, carreiras, ui
 ```
 
 A API está documentada em **/swagger-ui.html**.
 
 ## Produto
 
-Escopo, personas e ordem das entregas estão na [Lean Inception](docs/lean-inception.md). Próximas ondas: login de recrutadores e gestores, agenda de entrevistas e e-mails automáticos.
+Escopo, personas e ordem das entregas estão na [Lean Inception](docs/lean-inception.md). Próximas ondas: login de recrutadores e gestores; agenda de entrevistas e e-mails automáticos.

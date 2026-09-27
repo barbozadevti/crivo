@@ -1,6 +1,8 @@
 package dev.barboza.crivo.api;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -19,9 +21,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 import dev.barboza.crivo.config.Demonstracao;
 import dev.barboza.crivo.dominio.Candidato;
+import dev.barboza.crivo.dominio.Compatibilidade;
 import dev.barboza.crivo.dominio.Etapa;
 import dev.barboza.crivo.dominio.Evento;
+import dev.barboza.crivo.dominio.Habilidades;
 import dev.barboza.crivo.dominio.ResultadoDoContato;
+import dev.barboza.crivo.dominio.Vaga;
+import dev.barboza.crivo.servico.PainelService;
 import dev.barboza.crivo.servico.RecrutamentoService;
 import dev.barboza.crivo.servico.RecrutamentoService.Funil;
 import dev.barboza.crivo.servico.SimulacaoService;
@@ -37,12 +43,17 @@ public class RecrutamentoController {
 
     private final RecrutamentoService recrutamento;
     private final SimulacaoService simulacao;
+    private final PainelService painel;
     private final Demonstracao demonstracao;
+    private final Clock relogio;
 
-    public RecrutamentoController(RecrutamentoService recrutamento, SimulacaoService simulacao, Demonstracao demonstracao) {
+    public RecrutamentoController(RecrutamentoService recrutamento, SimulacaoService simulacao, PainelService painel,
+            Demonstracao demonstracao, Clock relogio) {
         this.recrutamento = recrutamento;
         this.simulacao = simulacao;
+        this.painel = painel;
         this.demonstracao = demonstracao;
+        this.relogio = relogio;
     }
 
     // ---------- Contratos ----------
@@ -54,29 +65,42 @@ public class RecrutamentoController {
     }
 
     public record VagaResposta(Long id, String titulo, String area, String descricao, BigDecimal salarioBase, int quantidade,
-            String status, Instant criadaEm, Instant encerradaEm, long total, int ocupadas, int livres, long contratados,
-            int acimaDoOrcamento, Map<String, Long> porEtapa) {
+            List<String> requisitos, String modelo, String modeloNome, String local, String status, Instant criadaEm,
+            Instant encerradaEm, long total, int ocupadas, int livres, long contratados, int acimaDoOrcamento,
+            Map<String, Long> porEtapa) {
 
         static VagaResposta de(Funil f) {
             Map<String, Long> etapas = new LinkedHashMap<>();
             f.porEtapa().forEach((e, n) -> etapas.put(e.name(), n));
-            var v = f.vaga();
+            Vaga v = f.vaga();
             return new VagaResposta(v.getId(), v.getTitulo(), v.getArea(), v.getDescricao(), v.getSalarioBase(),
-                    v.getQuantidade(), v.getStatus().name(), v.getCriadaEm(), v.getEncerradaEm(), f.total(), f.ocupadas(),
+                    v.getQuantidade(), Habilidades.lista(v.getRequisitos()), v.getModelo().name(), v.getModelo().nome(),
+                    v.getLocal(), v.getStatus().name(), v.getCriadaEm(), v.getEncerradaEm(), f.total(), f.ocupadas(),
                     f.livres(), f.contratados(), f.acimaDoOrcamento(), etapas);
         }
     }
 
-    public record CandidatoResposta(Long id, Long vagaId, String nome, String email, String telefone,
-            BigDecimal salarioPretendido, String etapa, String etapaNome, String recomendacao, String recomendacaoTexto,
-            int tentativasDeContato, Instant inscritoEm, List<EtapaResposta> proximas) {
+    public record CompatibilidadeResposta(int pontuacao, List<String> atende, List<String> faltam) {
+        static CompatibilidadeResposta de(Compatibilidade c) {
+            return new CompatibilidadeResposta(c.pontuacao(), c.atende(), c.faltam());
+        }
+    }
 
-        static CandidatoResposta de(Candidato c) {
+    public record CandidatoResposta(Long id, Long vagaId, String nome, String email, String telefone, String linkedin,
+            BigDecimal salarioPretendido, List<String> habilidades, String origem, String origemNome, String etapa,
+            String etapaNome, String recomendacao, String recomendacaoTexto, CompatibilidadeResposta compatibilidade,
+            int tentativasDeContato, Integer notaEntrevista, String parecer, BigDecimal salarioOfertado, Instant inscritoEm,
+            Instant atualizadoEm, long diasNaEtapa, List<EtapaResposta> proximas) {
+
+        static CandidatoResposta de(Candidato c, Instant agora) {
             List<EtapaResposta> proximas = c.getEtapa().proximas().stream()
                     .filter(e -> e != Etapa.SEM_CONTATO).map(EtapaResposta::de).toList();
             return new CandidatoResposta(c.getId(), c.getVaga().getId(), c.getNome(), c.getEmail(), c.getTelefone(),
-                    c.getSalarioPretendido(), c.getEtapa().name(), c.getEtapa().nome(), c.recomendacao().name(),
-                    c.recomendacao().texto(), c.getTentativasDeContato(), c.getInscritoEm(), proximas);
+                    c.getLinkedin(), c.getSalarioPretendido(), Habilidades.lista(c.getHabilidades()), c.getOrigem().name(),
+                    c.getOrigem().nome(), c.getEtapa().name(), c.getEtapa().nome(), c.recomendacao().name(),
+                    c.recomendacao().texto(), CompatibilidadeResposta.de(c.compatibilidade()), c.getTentativasDeContato(),
+                    c.getNotaEntrevista(), c.getParecer(), c.getSalarioOfertado(), c.getInscritoEm(), c.getAtualizadoEm(),
+                    Math.max(0, Duration.between(c.getAtualizadoEm(), agora).toDays()), proximas);
         }
     }
 
@@ -89,10 +113,12 @@ public class RecrutamentoController {
     public record DetalheDoCandidato(CandidatoResposta candidato, List<EventoResposta> historico) {
     }
 
-    public record NovaVagaRequisicao(String titulo, String area, String descricao, BigDecimal salarioBase, Integer quantidade) {
+    public record NovaVagaRequisicao(String titulo, String area, String descricao, BigDecimal salarioBase, Integer quantidade,
+            String requisitos, Vaga.Modelo modelo, String local) {
     }
 
-    public record NovoCandidatoRequisicao(String nome, String email, String telefone, BigDecimal salarioPretendido) {
+    public record NovoCandidatoRequisicao(String nome, String email, String telefone, BigDecimal salarioPretendido,
+            String habilidades, String linkedin, Candidato.Origem origem) {
     }
 
     public record Movimento(@NotNull(message = "Informe a etapa de destino.") Etapa etapa, String motivo) {
@@ -101,19 +127,40 @@ public class RecrutamentoController {
     public record Contato(@NotNull(message = "Informe se o candidato atendeu.") Boolean atendeu) {
     }
 
+    public record Avaliacao(@NotNull(message = "Informe a nota de 1 a 5.") Integer nota, String parecer) {
+    }
+
+    public record Proposta(@NotNull(message = "Informe o valor da proposta.") BigDecimal valor) {
+    }
+
+    public record Nota(String texto) {
+    }
+
     public record ContatoResposta(String resultado, String mensagem, CandidatoResposta candidato, CandidatoResposta suplente) {
     }
 
     public record ImportacaoRequisicao(String texto) {
     }
 
-    // ---------- Rotas ----------
+    private CandidatoResposta resposta(Candidato c) {
+        return CandidatoResposta.de(c, relogio.instant());
+    }
+
+    // ---------- Visão geral ----------
+
+    @Operation(summary = "Visão geral", description = "Indicadores, funil de todas as vagas, origem dos candidatos, o que precisa de atenção hoje e atividade recente.")
+    @GetMapping("/painel")
+    public PainelService.Painel painel() {
+        return painel.painel();
+    }
 
     @Operation(summary = "Etapas do processo, na ordem do quadro")
     @GetMapping("/etapas")
     public List<EtapaResposta> etapas() {
         return Arrays.stream(Etapa.values()).map(EtapaResposta::de).toList();
     }
+
+    // ---------- Vagas ----------
 
     @GetMapping("/vagas")
     public List<VagaResposta> vagas() {
@@ -122,8 +169,8 @@ public class RecrutamentoController {
 
     @PostMapping("/vagas")
     public ResponseEntity<VagaResposta> criarVaga(@RequestBody NovaVagaRequisicao r) {
-        var vaga = recrutamento.criarVaga(new RecrutamentoService.NovaVaga(r.titulo(), r.area(), r.descricao(),
-                r.salarioBase(), r.quantidade()));
+        Vaga vaga = recrutamento.criarVaga(new RecrutamentoService.NovaVaga(r.titulo(), r.area(), r.descricao(), r.salarioBase(),
+                r.quantidade(), r.requisitos(), r.modelo(), r.local()));
         return ResponseEntity.status(HttpStatus.CREATED).body(VagaResposta.de(recrutamento.funil(vaga.getId())));
     }
 
@@ -140,18 +187,18 @@ public class RecrutamentoController {
 
     @GetMapping("/vagas/{id}/candidatos")
     public List<CandidatoResposta> candidatos(@PathVariable Long id) {
-        return recrutamento.candidatosDa(id).stream().map(CandidatoResposta::de).toList();
+        return recrutamento.candidatosDa(id).stream().map(this::resposta).toList();
     }
 
-    @Operation(summary = "Inscrever candidato", description = "A triagem pelo orçamento da vaga é feita na hora.")
+    @Operation(summary = "Inscrever candidato", description = "A triagem pelo orçamento e a compatibilidade são calculadas na hora.")
     @PostMapping("/vagas/{id}/candidatos")
     public ResponseEntity<CandidatoResposta> inscrever(@PathVariable Long id, @RequestBody NovoCandidatoRequisicao r) {
         Candidato c = recrutamento.inscrever(id, new RecrutamentoService.NovoCandidato(r.nome(), r.email(), r.telefone(),
-                r.salarioPretendido()));
-        return ResponseEntity.status(HttpStatus.CREATED).body(CandidatoResposta.de(c));
+                r.salarioPretendido(), r.habilidades(), r.linkedin(), r.origem() == null ? Candidato.Origem.MANUAL : r.origem()));
+        return ResponseEntity.status(HttpStatus.CREATED).body(resposta(c));
     }
 
-    @Operation(summary = "Importar candidatos", description = "Uma linha por candidato: nome;e-mail;telefone;salário.")
+    @Operation(summary = "Importar candidatos", description = "Uma linha por candidato: nome;e-mail;telefone;salário[;habilidade|habilidade].")
     @PostMapping("/vagas/{id}/importacao")
     public RecrutamentoService.Importacao importar(@PathVariable Long id, @RequestBody ImportacaoRequisicao r) {
         return recrutamento.importar(id, r.texto());
@@ -160,7 +207,7 @@ public class RecrutamentoController {
     @Operation(summary = "Selecionar", description = "Seleciona, em ordem de inscrição, quem cabe no orçamento até completar as vagas.")
     @PostMapping("/vagas/{id}/selecao")
     public List<CandidatoResposta> selecionar(@PathVariable Long id) {
-        return recrutamento.selecionar(id).stream().map(CandidatoResposta::de).toList();
+        return recrutamento.selecionar(id).stream().map(this::resposta).toList();
     }
 
     @Operation(summary = "Simular o processo", description = "Sorteia contatos, entrevistas e propostas. A mesma semente dá o mesmo resultado.")
@@ -169,16 +216,18 @@ public class RecrutamentoController {
         return simulacao.simular(id, semente);
     }
 
+    // ---------- Candidato ----------
+
     @GetMapping("/candidatos/{id}")
     public DetalheDoCandidato candidato(@PathVariable Long id) {
-        return new DetalheDoCandidato(CandidatoResposta.de(recrutamento.candidato(id)),
+        return new DetalheDoCandidato(resposta(recrutamento.candidato(id)),
                 recrutamento.historico(id).stream().map(EventoResposta::de).toList());
     }
 
     @Operation(summary = "Mudar de etapa", description = "Validado pela máquina de estados: mudança não permitida devolve 409.")
     @PostMapping("/candidatos/{id}/etapa")
     public CandidatoResposta mover(@PathVariable Long id, @Valid @RequestBody Movimento m) {
-        return CandidatoResposta.de(recrutamento.mover(id, m.etapa(), m.motivo()));
+        return resposta(recrutamento.mover(id, m.etapa(), m.motivo()));
     }
 
     @Operation(summary = "Registrar tentativa de contato", description = "Na 3ª sem sucesso, o candidato sai e o suplente é chamado.")
@@ -188,15 +237,33 @@ public class RecrutamentoController {
         return switch (resultado) {
             case ResultadoDoContato.Atendeu a -> new ContatoResposta("ATENDEU",
                     a.candidato().getNome() + " atendeu na " + a.tentativa() + "ª tentativa e segue para a entrevista.",
-                    CandidatoResposta.de(a.candidato()), null);
+                    resposta(a.candidato()), null);
             case ResultadoDoContato.NaoAtendeu n -> new ContatoResposta("NAO_ATENDEU",
                     n.candidato().getNome() + " não atendeu. Restam " + n.restantes() + " tentativa(s).",
-                    CandidatoResposta.de(n.candidato()), null);
+                    resposta(n.candidato()), null);
             case ResultadoDoContato.SemContato s -> new ContatoResposta("SEM_CONTATO",
                     "Sem contato com " + s.candidato().getNome() + " após " + Candidato.MAXIMO_DE_TENTATIVAS + " tentativas."
                             + (s.suplente() != null ? " Suplente chamado: " + s.suplente().getNome() + "." : " Não há suplente na fila."),
-                    CandidatoResposta.de(s.candidato()), s.suplente() == null ? null : CandidatoResposta.de(s.suplente()));
+                    resposta(s.candidato()), s.suplente() == null ? null : resposta(s.suplente()));
         };
+    }
+
+    @Operation(summary = "Avaliar a entrevista", description = "Nota de 1 a 5 e parecer. A proposta exige nota mínima 3.")
+    @PostMapping("/candidatos/{id}/avaliacao")
+    public CandidatoResposta avaliar(@PathVariable Long id, @Valid @RequestBody Avaliacao a) {
+        return resposta(recrutamento.avaliar(id, a.nota(), a.parecer()));
+    }
+
+    @Operation(summary = "Enviar proposta", description = "Valor até o orçamento; abaixo da pretensão fica registrado como contraproposta.")
+    @PostMapping("/candidatos/{id}/proposta")
+    public CandidatoResposta propor(@PathVariable Long id, @Valid @RequestBody Proposta p) {
+        return resposta(recrutamento.enviarProposta(id, p.valor()));
+    }
+
+    @Operation(summary = "Anotar", description = "Nota livre do recrutador, no histórico do candidato.")
+    @PostMapping("/candidatos/{id}/notas")
+    public ResponseEntity<EventoResposta> anotar(@PathVariable Long id, @RequestBody Nota n) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(EventoResposta.de(recrutamento.anotar(id, n.texto())));
     }
 
     @Operation(summary = "Reiniciar demonstração", description = "Apaga tudo e recarrega as vagas de exemplo.")

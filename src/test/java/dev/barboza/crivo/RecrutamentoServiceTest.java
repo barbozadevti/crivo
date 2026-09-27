@@ -56,7 +56,7 @@ class RecrutamentoServiceTest {
         assertThat(ana.getEtapa()).isEqualTo(Etapa.INSCRITO);
         assertThat(ana.recomendacao()).isEqualTo(Recomendacao.LIGAR);
         assertThat(recrutamento.historico(ana.getId())).extracting(Evento::getDescricao)
-                .containsExactly("Inscrição. Triagem: ligar para o candidato.");
+                .containsExactly("Inscrição (cadastro manual). Triagem: ligar para o candidato.");
         assertThatThrownBy(() -> inscrever(vaga, "Ana Souza", "1800"))
                 .hasMessage("ana.souza@teste.dev já está inscrito nesta vaga.");
     }
@@ -166,7 +166,8 @@ class RecrutamentoServiceTest {
         Candidato bia = inscrever(vaga, "Beatriz Lima", "2600");
         recrutamento.selecionar(vaga.getId());
         recrutamento.registrarContato(ana.getId(), true);
-        recrutamento.mover(ana.getId(), Etapa.PROPOSTA, null);
+        recrutamento.avaliar(ana.getId(), 4, "Boa entrevista técnica.");
+        recrutamento.enviarProposta(ana.getId(), new BigDecimal("2500"));
         recrutamento.mover(ana.getId(), Etapa.CONTRATADO, null);
 
         RecrutamentoService.Funil funil = recrutamento.funil(vaga.getId());

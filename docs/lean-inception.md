@@ -77,6 +77,11 @@
 | Funil e indicadores da vaga | E | $$ | ♥♥♥ |
 | Importar candidatos por CSV | E | $$ | ♥♥ |
 | Simulação do processo (sorteio repetível) | E | $ | ♥♥♥ |
+| Visão geral com "precisa de atenção hoje" | EE | $$$ | ♥♥♥ |
+| Compatibilidade (requisitos x habilidades + orçamento) | E | $$$ | ♥♥♥ |
+| Avaliação da entrevista e proposta com valor (contraproposta) | EE | $$$ | ♥♥ |
+| Página pública de carreiras | EE | $$ | ♥♥♥ |
+| Notas do recrutador | E | $$ | ♥♥ |
 | Login de recrutadores | EE | $$ | ♥ |
 | Agenda de entrevistas | EEE | $$ | ♥♥ |
 | E-mail automático ao candidato | EE | $$ | ♥♥ |
@@ -88,14 +93,16 @@
 | 1 | Vagas, inscrição com triagem, máquina de estados, histórico | Entregue |
 | 2 | Seleção automática, tentativas de contato e suplente, encerramento automático da vaga | Entregue |
 | 3 | Kanban, funil, importação CSV, simulação, atalho de um clique, CI | Entregue |
-| 4 | Login de recrutadores e gestores | Próxima |
-| 5 | Agenda de entrevistas e e-mails automáticos | Futuro |
+| 4 | Visão geral com pendências do dia, compatibilidade, avaliação da entrevista, proposta com contraproposta, notas, página de carreiras, novo visual | Entregue |
+| 5 | Login de recrutadores e gestores | Próxima |
+| 6 | Agenda de entrevistas e e-mails automáticos | Futuro |
 
 ## 8. MVP
 
 **Hipótese:** um funil com regras explícitas (orçamento, limite de vagas, 3 tentativas de contato) reduz candidatos esquecidos e acelera o preenchimento das vagas.
 
-**Ondas 1 a 3.** Validado quando:
+**Ondas 1 a 4.** Validado quando:
 - nenhuma mudança de etapa inválida é aceita (garantido pela máquina de estados e por testes com todas as combinações);
 - a vaga nunca tem mais contratados que vagas;
-- um candidato só vai para "sem contato" depois de 3 tentativas registradas, e o suplente é chamado na hora.
+- um candidato só vai para "sem contato" depois de 3 tentativas registradas, e o suplente é chamado na hora;
+- nenhuma proposta sai sem avaliação da entrevista (nota mínima 3) nem acima do orçamento.

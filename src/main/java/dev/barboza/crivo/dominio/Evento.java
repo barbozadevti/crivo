@@ -19,7 +19,7 @@ import jakarta.persistence.Table;
 @Table(name = "evento")
 public class Evento {
 
-    public enum Tipo { INSCRICAO, MUDANCA_DE_ETAPA, CONTATO }
+    public enum Tipo { INSCRICAO, MUDANCA_DE_ETAPA, CONTATO, AVALIACAO, NOTA }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -36,7 +36,7 @@ public class Evento {
     @Column(nullable = false, length = 20)
     private Tipo tipo;
 
-    @Column(nullable = false, length = 200)
+    @Column(nullable = false, length = 500)
     private String descricao;
 
     @Enumerated(EnumType.STRING)
@@ -53,14 +53,15 @@ public class Evento {
     private Evento(Candidato candidato, Tipo tipo, String descricao, Etapa anterior, Etapa nova, Instant dataHora) {
         this.candidato = candidato;
         this.tipo = tipo;
-        this.descricao = descricao.length() > 200 ? descricao.substring(0, 200) : descricao;
+        this.descricao = descricao.length() > 500 ? descricao.substring(0, 500) : descricao;
         this.etapaAnterior = anterior;
         this.etapaNova = nova;
         this.dataHora = dataHora;
     }
 
     public static Evento inscricao(Candidato c, Instant quando) {
-        return new Evento(c, Tipo.INSCRICAO, "Inscrição. Triagem: " + c.recomendacao().texto().toLowerCase() + ".",
+        String origem = c.getOrigem() == Candidato.Origem.MANUAL ? " (cadastro manual)" : " via " + c.getOrigem().nome();
+        return new Evento(c, Tipo.INSCRICAO, "Inscrição" + origem + ". Triagem: " + c.recomendacao().texto().toLowerCase() + ".",
                 null, Etapa.INSCRITO, quando);
     }
 
@@ -71,6 +72,23 @@ public class Evento {
 
     public static Evento contato(Candidato c, String descricao, Instant quando) {
         return new Evento(c, Tipo.CONTATO, descricao, null, null, quando);
+    }
+
+    static Evento avaliacao(Candidato c, String descricao, Instant quando) {
+        return new Evento(c, Tipo.AVALIACAO, descricao, null, null, quando);
+    }
+
+    /** Anotação livre do recrutador ("pediu retorno na segunda", "boa referência"). */
+    public static Evento nota(Candidato c, String texto, Instant quando) {
+        String limpo = texto == null ? "" : texto.trim().replaceAll("\\s+", " ");
+        if (limpo.length() < 2 || limpo.length() > 500) {
+            throw new RegraVioladaException("A nota deve ter de 2 a 500 caracteres.");
+        }
+        return new Evento(c, Tipo.NOTA, limpo, null, null, quando);
+    }
+
+    public Candidato getCandidato() {
+        return candidato;
     }
 
     public Long getId() {

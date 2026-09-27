@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import dev.barboza.crivo.dominio.Candidato;
+import dev.barboza.crivo.dominio.Dinheiro;
 import dev.barboza.crivo.dominio.Etapa;
 import dev.barboza.crivo.dominio.ResultadoDoContato;
 
@@ -22,9 +23,11 @@ public class SimulacaoService {
     private static final int LIMITE_DE_RODADAS = 200;
 
     private final RecrutamentoService recrutamento;
+    private final java.time.Clock relogio;
 
-    public SimulacaoService(RecrutamentoService recrutamento) {
+    public SimulacaoService(RecrutamentoService recrutamento, java.time.Clock relogio) {
         this.recrutamento = recrutamento;
+        this.relogio = relogio;
     }
 
     public record Simulacao(long semente, List<String> passos, RecrutamentoService.Funil funil) {
@@ -36,7 +39,7 @@ public class SimulacaoService {
         Random sorteio = new Random(usada);
         List<String> passos = new ArrayList<>();
 
-        List<Candidato> selecionados = recrutamento.selecionarSemFalhar(vagaId);
+        List<Candidato> selecionados = recrutamento.selecionarEm(vagaId, relogio.instant());
         selecionados.forEach(c -> passos.add("Selecionado: " + c.getNome()
                 + " (pretende " + Dinheiro.formatar(c.getSalarioPretendido()) + ")"));
         if (selecionados.isEmpty()) {
@@ -67,14 +70,24 @@ public class SimulacaoService {
     private String passo(Candidato c, Random sorteio) {
         return switch (c.getEtapa()) {
             case SELECIONADO -> descrever(recrutamento.registrarContato(c.getId(), sorteio.nextInt(3) == 1));
-            case ENTREVISTA -> sorteio.nextInt(10) < 7
-                    ? mover(c, Etapa.PROPOSTA, "aprovado na entrevista", "passou na entrevista")
-                    : mover(c, Etapa.REPROVADO, "não passou na entrevista", "não passou na entrevista");
+            case ENTREVISTA -> entrevistar(c, sorteio);
             case PROPOSTA -> sorteio.nextInt(10) < 8
                     ? mover(c, Etapa.CONTRATADO, "aceitou a proposta", "aceitou a proposta: contratado")
                     : mover(c, Etapa.DESISTIU, "recusou a proposta", "recusou a proposta");
             default -> c.getNome() + ": nada a fazer";
         };
+    }
+
+    /** 70% passam: nota de 3 a 5 e proposta pelo menor valor entre a pretensão e o orçamento. */
+    private String entrevistar(Candidato c, Random sorteio) {
+        if (sorteio.nextInt(10) < 7) {
+            int nota = 3 + sorteio.nextInt(3);
+            recrutamento.avaliar(c.getId(), nota, "Simulação: boa entrevista técnica e comportamental.");
+            recrutamento.enviarProposta(c.getId(), c.getSalarioPretendido().min(c.getVaga().getSalarioBase()));
+            return c.getNome() + " passou na entrevista (nota " + nota + "/5) e recebeu proposta";
+        }
+        recrutamento.avaliar(c.getId(), 1 + sorteio.nextInt(2), "Simulação: não atendeu aos requisitos técnicos.");
+        return mover(c, Etapa.REPROVADO, "não passou na entrevista", "não passou na entrevista");
     }
 
     private String mover(Candidato c, Etapa destino, String motivo, String texto) {

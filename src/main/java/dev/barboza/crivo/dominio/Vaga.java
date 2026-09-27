@@ -20,6 +20,20 @@ public class Vaga {
 
     public enum Status { ABERTA, ENCERRADA }
 
+    public enum Modelo {
+        REMOTO("Remoto"), HIBRIDO("Híbrido"), PRESENCIAL("Presencial");
+
+        private final String nome;
+
+        Modelo(String nome) {
+            this.nome = nome;
+        }
+
+        public String nome() {
+            return nome;
+        }
+    }
+
     public static final int MAXIMO_DE_VAGAS = 50;
 
     @Id
@@ -43,6 +57,17 @@ public class Vaga {
     @Column(nullable = false)
     private int quantidade;
 
+    /** Requisitos separados por vírgula ("Java, Spring Boot, SQL"): base da compatibilidade. */
+    @Column(length = 300)
+    private String requisitos;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 12)
+    private Modelo modelo;
+
+    @Column(length = 60)
+    private String local;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     private Status status;
@@ -60,6 +85,11 @@ public class Vaga {
     }
 
     public Vaga(String titulo, String area, String descricao, BigDecimal salarioBase, int quantidade, Instant criadaEm) {
+        this(titulo, area, descricao, salarioBase, quantidade, null, null, null, criadaEm);
+    }
+
+    public Vaga(String titulo, String area, String descricao, BigDecimal salarioBase, int quantidade, String requisitos,
+            Modelo modelo, String local, Instant criadaEm) {
         this.titulo = texto(titulo, "o título", 3, 80);
         this.area = texto(area, "a área", 2, 40);
         this.descricao = descricao == null || descricao.isBlank() ? null : texto(descricao, "a descrição", 1, 500);
@@ -68,6 +98,9 @@ public class Vaga {
             throw new RegraVioladaException("A quantidade de vagas deve ser de 1 a " + MAXIMO_DE_VAGAS + ".");
         }
         this.quantidade = quantidade;
+        this.requisitos = Habilidades.normalizarTexto(requisitos, "requisitos");
+        this.modelo = modelo == null ? Modelo.HIBRIDO : modelo;
+        this.local = local == null || local.isBlank() ? null : texto(local, "o local", 2, 60);
         this.status = Status.ABERTA;
         this.criadaEm = criadaEm;
     }
@@ -131,6 +164,18 @@ public class Vaga {
 
     public int getQuantidade() {
         return quantidade;
+    }
+
+    public String getRequisitos() {
+        return requisitos;
+    }
+
+    public Modelo getModelo() {
+        return modelo;
+    }
+
+    public String getLocal() {
+        return local;
     }
 
     public Status getStatus() {
